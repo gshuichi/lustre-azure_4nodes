@@ -1,0 +1,559 @@
+{
+	"$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"hostOs": {
+			"type": "string",
+			"defaultValue": "az-es4.1",
+			"allowedValues": [
+				"az-es4.1"
+			],
+			"metadata": {
+				"description": "OS to install on the host system (Centos was removed due to breaking change)"
+			}
+		},
+		"artifactsBaseUrl": {
+			"type": "string",
+			"defaultValue": "https://raw.githubusercontent.com/gshuichi/lustre-azure/master/",
+			"metadata": {
+				"description": "Base URL of the solution template gallery package",
+				"artifactsBaseUrl": ""
+			}
+		},
+		"location": {
+			"type": "string",
+			"defaultValue": "[resourceGroup().location]",
+			"metadata": {
+				"description": "Location for the Lustre nodes"
+			}
+		},
+		"storageAccountCount": {
+			"type": "int",
+			"defaultValue": 1,
+			"metadata": {
+				"description": "Number of storage accounts that will be created for the Lustre nodes to spread the disks evenly"
+			}
+		},
+		"storageAccountType": {
+			"type": "string",
+			"defaultValue": "Premium_LRS",
+			"metadata": {
+				"description": "Storage account type (e.g. Premium_LRS or Standard_LRS)"
+			}
+		},
+		"vmNamePrefix": {
+			"type": "string",
+			"defaultValue": "az-es",
+			"metadata": {
+				"description": "Prefix that will be used for all virtual machines in this Lustre cluster (e.g. lustre)"
+			}
+		},
+		"adminUsername": {
+			"type": "string",
+			"defaultValue": "msadmin",
+			"metadata": {
+				"description": "Admin username for the virtual machines"
+			}
+		},
+		"adminPassword": {
+			"type": "securestring",
+			"defaultValue": "",
+			"metadata": {
+				"description": "Admin password for the virtual machines"
+			}
+		},
+		"sshKeyData": {
+			"type": "string",
+			"defaultValue": "",
+			"metadata": {
+				"description": "SSH public key that will be included on all nodes in the Lustre cluster. The OpenSSH public key can be generated with tools like ssh-keygen on Linux or OS X."
+			}
+		},
+		"dnsNamePrefix": {
+			"type": "string",
+			"defaultValue": "lustre",
+			"metadata": {
+				"description": "Globally unique DNS name prefix name must be between 3 and 50 characters long and can contain only dashes, numbers, and lowercase letters. The domain name suffix (e.g. westus.cloudapp.zure.com) will be automatically updated based on the selected location."
+			}
+		},
+		"mgsVmSize": {
+			"type": "string",
+			"defaultValue": "Standard_D2s_v3",
+			"metadata": {
+				"description": "Size of the Management Server (MGS) that stores configuration information for all Lustre filesystems in a cluster."
+
+			},
+			"allowedValues": [
+				"Standard_D2s_v3",
+				"Standard_DS2_v2"
+			]
+		},
+		"mdsVmSize": {
+			"type": "string",
+			"defaultValue": "Standard_D2s_v3",
+			"metadata": {
+				"description": "Size of the Metadata Server (MDS) that makes metadata (e.g. files, directories, permissions) available to Lustre clients"
+			},
+			"allowedValues": [
+				"Standard_D2s_v3",
+				"Standard_DS2_v2"
+			]
+		},
+		"ossVmSize": {
+			"type": "string",
+			"defaultValue": "Standard_DS3_v2",
+			"metadata": {
+				"description": "Size of the Object Storage Server (OSS) that provides file I/O service and network request handling for one or more attached disks referred to as Object Storage Target (OST)"
+			},
+			"allowedValues": [
+				"Standard_DS3_v2",
+				"Standard_D8s_v3"
+			]
+		},
+                "mdsCount": {
+                        "type": "int",
+                        "defaultValue": 2,
+                        "metadata": {
+                                "description": "The number of virtual machines instances to provision for MDS servers"
+                        }
+                },
+		"ossCount": {
+			"type": "int",
+			"defaultValue": 4,
+			"metadata": {
+				"description": "The number of virtual machines instances to provision for OSS servers"
+			}
+		},
+                "mdsDiskSize": {
+                        "type": "int",
+                        "defaultValue": 1024,
+                        "metadata": {
+                                "description": "Size of the data disks to use for the MDTs. All MDS instances have 3 data disks attached."
+                        }
+                },
+		"ossDiskSize": {
+			"type": "int",
+			"defaultValue": 1024,
+			"metadata": {
+				"description": "Size of the data disks to use for the OSTs. All OSS instances have 3 data disks attached."
+			}
+		},
+		"filesystemName": {
+			"type": "string",
+			"defaultValue": "lustre",
+			"metadata": {
+				"description": "Name of the Lustre filesytem (e.g. scratch, lustre, shared_data) that will be mounted from clients as mgsip@tcp0:/filesystemname"
+			}
+		},
+		"existingVnetResourceGroup": {
+			"type": "string",
+			"defaultValue": "lustrerg",
+			"metadata": {
+				"description": "Virtual Network Resource Group for cases when Lustre nodes are deployed into an existing VNet"
+			}
+		},
+		"existingVnetName": {
+			"type": "string",
+			"defaultValue": "vnet-lustre",
+			"metadata": {
+				"description": "Virtual Network name (e.g. vnet-lustre)"
+			}
+		},
+		"vnetNewOrExisting": {
+			"type": "string",
+			"defaultValue": "existing",
+			"allowedValues": [
+				"new",
+				"existing"
+			],
+			"metadata": {
+				"description": "Parameter that specifies if an new or an existing virtual network should be used for deploying Lustre nodes"
+			}
+		},
+		"vnetAddressPrefix": {
+			"type": "string",
+			"defaultValue": "10.0.0.0/24",
+			"metadata": {
+				"description": "Virtual Network Address Prefix (i.e. CIDR)"
+			}
+		},
+		"subnetServersName": {
+			"type": "string",
+			"defaultValue": "default",
+			"metadata": {
+				"description": "Lustre servers will be deployed into this subnet within the Virtual Network"
+			}
+		},
+		"subnetServersAddressPrefix": {
+			"type": "string",
+			"defaultValue": "10.0.0.0/24",
+			"metadata": {
+				"description": "Virtual Network Lustre Servers subnet Address Prefix (i.e. CIDR)"
+			}
+		}
+	},
+	"variables": {
+		"ossAvailabilitySetSettings": {
+			"name": "[concat(parameters('vmNamePrefix'),'-oss')]",
+			"faultDomainCount": "1",
+			"updateDomainCount": "1"
+		},
+		"imageReference": {
+			"az-es4.1": {
+				"id": "[resourceId('Microsoft.Compute/images', 'az-es4.1')]"
+			},
+		},
+		"imageReference_OpenLogic:CentOS-HPC:7.1": {
+			"publisher": "OpenLogic",
+			"offer": "CentOS-HPC",
+			"sku": "7.1",
+			"version": "latest"
+		},
+		"imageReference_OpenLogic:CentOS-HPC:6.5": {
+			"publisher": "OpenLogic",
+			"offer": "CentOS-HPC",
+			"sku": "6.5",
+			"version": "latest"
+		},
+		"imageReference_OpenLogic:CentOS:7.0": {
+			"publisher": "OpenLogic",
+			"offer": "CentOS",
+			"sku": "7.0",
+			"version": "latest"
+		},
+		"imageReference_OpenLogic:CentOS:6.6": {
+			"publisher": "OpenLogic",
+			"offer": "CentOS",
+			"sku": "6.6",
+			"version": "latest"
+		},
+		"baseUrl": "[concat(parameters('artifactsBaseUrl'),'/')]",
+		"scriptUrlLustre": "[concat(variables('baseUrl'),'lustre.sh')]",
+		"templateUrlVnet": "[concat(variables('baseUrl'),'vnet-',parameters('vnetNewOrExisting'),'.json')]",
+		"sshKeyPath": "[concat('/home/',parameters('adminUsername'),'/.ssh/authorized_keys')]",
+		"storageAccountName": "[concat(uniquestring(resourceGroup().id), 'server')]",
+		"vnetID": "[resourceId(parameters('existingVnetResourceGroup'), 'Microsoft.Network/virtualNetworks', parameters('existingVnetName'))]",
+		"subnetServersID": "[concat(variables('vnetID'), '/subnets/', parameters('subnetServersName'))]",
+		"mgsStorageAccountNumber": "1",
+		"mdsStorageAccountNumber": "1",
+		"mgsDiskCount": "1",
+		"mdsDiskCount": "1",
+		"ossDiskCount": "2",
+		"baseUrl1": "[concat(parameters('artifactsBaseUrl'),'/')]"
+	},
+	"resources": [{
+		"apiVersion": "2015-06-15",
+		"type": "Microsoft.Storage/storageAccounts",
+		"name": "[concat(variables('storageAccountName'),copyIndex(1))]",
+		"location": "[parameters('location')]",
+		"copy": {
+			"name": "storageAccountsCopy",
+			"count": "[parameters('storageAccountCount')]"
+		},
+		"properties": {
+			"accountType": "[parameters('storageAccountType')]"
+		}
+	}, {
+		"apiVersion": "2015-01-01",
+		"type": "Microsoft.Resources/deployments",
+		"name": "vnet",
+		"properties": {
+			"mode": "Incremental",
+			"templateLink": {
+				"uri": "[variables('templateUrlVnet')]",
+				"contentVersion": "1.0.0.0"
+			},
+			"parameters": {
+				"location": {
+					"value": "[parameters('location')]"
+				},
+				"vnetName": {
+					"value": "[parameters('existingVnetName')]"
+				},
+				"vnetResourceGroup": {
+					"value": "[parameters('existingVnetResourceGroup')]"
+				},
+				"vnetAddressPrefix": {
+					"value": "[parameters('vnetAddressPrefix')]"
+				},
+				"subnetServersName": {
+					"value": "[parameters('subnetServersName')]"
+				},
+				"subnetServersAddressPrefix": {
+					"value": "[parameters('subnetServersAddressPrefix')]"
+				}
+			}
+		}
+        }, {
+		"apiVersion": "2015-06-15",
+		"type": "Microsoft.Network/publicIPAddresses",
+		"name": "[concat(parameters('vmNamePrefix'),'-mgs')]",
+		"location": "[parameters('location')]",
+		"properties": {
+			"publicIPAllocationMethod": "Dynamic",
+			"idleTimeoutInMinutes": 4,
+			"dnsSettings": {
+				"domainNameLabel": "[concat(parameters('dnsNamePrefix'),'')]"
+			}
+		}
+	}, {
+		"apiVersion": "2015-06-15",
+		"type": "Microsoft.Network/networkInterfaces",
+		"name": "[concat(parameters('vmNamePrefix'),'-mgs')]",
+		"location": "[parameters('location')]",
+		"dependsOn": [
+			"[concat('Microsoft.Resources/deployments/', 'vnet')]",
+			"[concat('Microsoft.Network/publicIPAddresses/', concat(parameters('vmNamePrefix'),'-mgs'))]"
+		],
+		"properties": {
+			"ipConfigurations": [{
+				"name": "ip1",
+				"properties": {
+					"privateIPAllocationMethod": "Dynamic",
+					"publicIPAddress": {
+						"id": "[resourceId('Microsoft.Network/publicIPAddresses', concat(parameters('vmNamePrefix'), '-mgs'))]"
+					},
+					"subnet": {
+						"id": "[variables('subnetServersID')]"
+					}
+				}
+			}]
+		}
+	}, {
+		"apiVersion": "2017-03-30",
+		"type": "Microsoft.Compute/virtualMachines",
+		"name": "[concat(parameters('vmNamePrefix'),'-mgs')]",
+		"location": "[parameters('location')]",
+		"dependsOn": [
+			"storageAccountsCopy",
+			"[concat('Microsoft.Network/networkInterfaces/', parameters('vmNamePrefix'), '-mgs')]"
+		],
+		"tags": {
+			"LustreType": "mgt"
+		},
+		"properties": {
+			"hardwareProfile": {
+				"vmSize": "[parameters('mgsVmSize')]"
+			},
+			"osProfile": {
+				"computerName": "[concat(parameters('vmNamePrefix'),'-mgs')]",
+				"adminUsername": "[parameters('adminUsername')]",
+				"adminPassword": "[parameters('adminPassword')]",
+				"linuxConfiguration": {
+					"disablePasswordAuthentication": false,
+					"ssh": {
+						"publicKeys": [{
+							"path": "[variables('sshKeyPath')]",
+							"keyData": "[parameters('sshKeyData')]"
+						}]
+					}
+				}
+			},
+			"storageProfile": {
+				"imageReference": "[variables('imageReference')[parameters('hostOS')]]",
+				"osDisk": {
+					"name": "[concat(parameters('vmNamePrefix'), '-mgs', '_OSDisk')]",
+					"caching": "ReadWrite",
+					"createOption": "FromImage"
+				},
+				"dataDisks": [{
+					"name": "[concat(parameters('vmNamePrefix'), '-mgs', '_DataDisk1')]",
+					"diskSizeGB": "[parameters('mdsDiskSize')]",
+					"lun": 0,
+					"caching": "None",
+					"createOption": "Empty"
+				}, {
+					"name": "[concat(parameters('vmNamePrefix'), '-mgs', '_DataDisk2')]",
+					"diskSizeGB": "[parameters('mdsDiskSize')]",
+					"lun": 1,
+					"caching": "None",
+					"createOption": "Empty"
+				}]
+			},
+			"networkProfile": {
+				"networkInterfaces": [{
+					"id": "[resourceId('Microsoft.Network/networkInterfaces',concat(parameters('vmNamePrefix'),'-mgs'))]"
+				}]
+			}
+		}
+	}, {
+		"apiVersion": "2015-06-15",
+		"type": "Microsoft.Compute/virtualMachines/extensions",
+		"name": "[concat(parameters('vmNamePrefix'), '-mgs', '/init')]",
+		"location": "[parameters('location')]",
+		"dependsOn": [
+			"[concat('Microsoft.Compute/virtualMachines/', concat(parameters('vmNamePrefix'), '-mgs'))]"
+		],
+		"properties": {
+			"publisher": "Microsoft.Azure.Extensions",
+			"type": "CustomScript",
+			"typeHandlerVersion": "2.0",
+			"autoUpgradeMinorVersion": true,
+			"settings": {
+				"fileUris": [
+					"[variables('scriptUrlLustre')]"
+				],
+				"commandToExecute": "[concat('sh lustre.sh', ' ', parameters('adminUsername'), ' ', parameters('adminPassword'))]"
+			}
+		}
+	}, {
+		"apiVersion": "2015-06-15",
+		"type": "Microsoft.Network/networkInterfaces",
+		"name": "[concat(parameters('vmNamePrefix'), '-mds', copyIndex())]",
+		"location": "[parameters('location')]",
+		"dependsOn": [
+			"[concat('Microsoft.Resources/deployments/', 'vnet')]",
+			"[concat('Microsoft.Network/networkInterfaces/', concat(parameters('vmNamePrefix'),'-mgs'))]"
+		],
+		"copy": {
+			"name": "mdsNicCopy",
+			"count": "[parameters('mdsCount')]"
+		},
+		"properties": {
+			"ipConfigurations": [{
+				"name": "ip1",
+				"properties": {
+					"privateIPAllocationMethod": "Dynamic",
+					"subnet": {
+						"id": "[variables('subnetServersID')]"
+					}
+				}
+			}]
+		}
+	}, {
+		"apiVersion": "2017-03-30",
+		"type": "Microsoft.Compute/virtualMachines",
+		"name": "[concat(parameters('vmNamePrefix'), '-mds', copyIndex())]",
+		"location": "[parameters('location')]",
+		"dependsOn": [
+			"storageAccountsCopy",
+			"[concat('Microsoft.Network/networkInterfaces/', parameters('vmNamePrefix'), '-mds', copyIndex())]"
+		],
+		"copy": {
+			"name": "mdsVmCopy",
+			"count": "[parameters('mdsCount')]"
+		},
+		"tags": {
+			"LustreType": "mdt"
+		},
+		"properties": {
+			"hardwareProfile": {
+				"vmSize": "[parameters('mdsVmSize')]"
+			},
+			"osProfile": {
+				"computerName": "[concat(parameters('vmNamePrefix'), '-mds', copyIndex())]",
+				"adminUsername": "[parameters('adminUsername')]",
+				"adminPassword": "[parameters('adminPassword')]",
+				"linuxConfiguration": {
+					"disablePasswordAuthentication": false
+				}
+			},
+			"storageProfile": {
+				"imageReference": "[variables('imageReference')[parameters('hostOS')]]",
+				"osDisk": {
+					"name": "[concat(parameters('vmNamePrefix'), '-mds', copyIndex(),'_OSDisk')]",
+					"caching": "ReadWrite",
+					"createOption": "FromImage"
+				},
+				"dataDisks": [{
+					"name": "[concat(parameters('vmNamePrefix'), '-mds', copyIndex(),'_DataDisk1')]",
+					"diskSizeGB": "[parameters('mdsDiskSize')]",
+					"lun": 0,
+					"caching": "None",
+					"createOption": "Empty"
+				}, {
+					"name": "[concat(parameters('vmNamePrefix'), '-mds', copyIndex(),'_DataDisk2')]",
+					"diskSizeGB": "[parameters('mdsDiskSize')]",
+					"lun": 1,
+					"caching": "None",
+					"createOption": "Empty"
+				}]
+			},
+			"networkProfile": {
+				"networkInterfaces": [{
+					"id": "[resourceId('Microsoft.Network/networkInterfaces',concat(parameters('vmNamePrefix'), '-mds', copyIndex()))]"
+				}]
+			}
+		}
+	}, {
+		"apiVersion": "2015-06-15",
+		"type": "Microsoft.Network/networkInterfaces",
+		"name": "[concat(parameters('vmNamePrefix'), '-oss', copyIndex())]",
+		"location": "[parameters('location')]",
+		"dependsOn": [
+			"[concat('Microsoft.Resources/deployments/', 'vnet')]",
+			"[concat('Microsoft.Network/networkInterfaces/', parameters('vmNamePrefix'), '-mds', copyIndex())]",
+			"[concat('Microsoft.Network/networkInterfaces/', concat(parameters('vmNamePrefix'),'-mgs'))]"
+		],
+		"copy": {
+			"name": "ossNicCopy",
+			"count": "[parameters('ossCount')]"
+		},
+		"properties": {
+			"ipConfigurations": [{
+				"name": "ip1",
+				"properties": {
+					"privateIPAllocationMethod": "Dynamic",
+					"subnet": {
+						"id": "[variables('subnetServersID')]"
+					}
+				}
+			}]
+		}
+	}, {
+		"apiVersion": "2017-03-30",
+		"type": "Microsoft.Compute/virtualMachines",
+		"name": "[concat(parameters('vmNamePrefix'), '-oss', copyIndex())]",
+		"location": "[parameters('location')]",
+		"dependsOn": [
+			"storageAccountsCopy",
+			"[concat('Microsoft.Network/networkInterfaces/', parameters('vmNamePrefix'), '-oss', copyIndex())]"
+		],
+		"copy": {
+			"name": "ossVmCopy",
+			"count": "[parameters('ossCount')]"
+		},
+		"tags": {
+			"LustreType": "ost"
+		},
+		"properties": {
+			"hardwareProfile": {
+				"vmSize": "[parameters('ossVmSize')]"
+			},
+			"osProfile": {
+				"computerName": "[concat(parameters('vmNamePrefix'), '-oss', copyIndex())]",
+				"adminUsername": "[parameters('adminUsername')]",
+				"adminPassword": "[parameters('adminPassword')]",
+				"linuxConfiguration": {
+					"disablePasswordAuthentication": false
+				}
+			},
+			"storageProfile": {
+				"imageReference": "[variables('imageReference')[parameters('hostOS')]]",
+				"osDisk": {
+					"name": "[concat(parameters('vmNamePrefix'), '-oss', copyIndex(),'_OSDisk')]",
+					"caching": "ReadWrite",
+					"createOption": "FromImage"
+				},
+				"dataDisks": [{
+					"name": "[concat(parameters('vmNamePrefix'), '-oss', copyIndex(),'_DataDisk1')]",
+					"diskSizeGB": "[parameters('ossDiskSize')]",
+					"lun": 0,
+					"caching": "None",
+					"createOption": "Empty"
+				}, {
+					"name": "[concat(parameters('vmNamePrefix'), '-oss', copyIndex(),'_DataDisk2')]",
+					"diskSizeGB": "[parameters('ossDiskSize')]",
+					"lun": 1,
+					"caching": "None",
+					"createOption": "Empty"
+				}]
+			},
+			"networkProfile": {
+				"networkInterfaces": [{
+					"id": "[resourceId('Microsoft.Network/networkInterfaces',concat(parameters('vmNamePrefix'), '-oss', copyIndex()))]"
+				}]
+			}
+		}
+	}],
+}

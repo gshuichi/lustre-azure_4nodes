@@ -1,0 +1,9 @@
+{
+  "$schema": "https://aka.ms/azure-quickstart-templates-metadata-schema#",
+  "type": "QuickStart",
+  "itemDisplayName": "DDN Exascaler",
+  "description": "This template creates DDN Exascaler node VMss",
+  "summary": "Lustre server nodes",
+  "githubUsername": "gshuichi",
+  "dateUpdated": "2018-12-30"
+}
